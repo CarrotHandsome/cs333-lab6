@@ -20,15 +20,14 @@
 #define BUF_SIZE 1024
 #define MAX_PLAYERS 4
 #define REGISTER_CHAR '\r'
-#define TIMER_NS 500000000 //1666666700 // 1/60th sec
+#define TIMER_NS 16666667 // ~1/60th sec
 
 void sigint_handler(int sig);
 int find_client(struct sockaddr_in cli, struct sockaddr_in registered[], int numcli);
-void generate_terrain(moon_state_t moon);
-void interval_update(moon_state_t moon, int fd);
-void player_update(moon_state_t, int player, char input);
-
-
+void generate_terrain(moon_state_t * moon);
+void interval_update(moon_state_t * moon, int sockfd, int timerfd, struct sockaddr_in cliaddr[]
+    , socklen_t addrlens[], int numplayers);
+void player_update(moon_state_t * moon, int player, char input);
 
 volatile sig_atomic_t keep_running = true;
 static bool is_verbose = false;
@@ -118,6 +117,7 @@ int main(int argc, char * argv[]) {
     pollfds[2].fd = timerfd;
     pollfds[2].events = POLLIN;
 
+    generate_terrain(&moon);
     while(keep_running) {
 
         poll(pollfds, 3, -1);
@@ -130,7 +130,7 @@ int main(int argc, char * argv[]) {
             received_bytes = recvfrom(socketfd, recv_buffer, BUF_SIZE, 0
             , (struct sockaddr *) &incoming_cli, &incoming_addrlen);
         
-            if (received_bytes == -1) {
+            if (received_bytes < 1) {
                 continue;
             }
 
@@ -143,6 +143,18 @@ int main(int argc, char * argv[]) {
                 }
                 cliaddrs[num_players] = incoming_cli;
                 addrlens[num_players] = incoming_addrlen;
+                moon.players[num_players] = (player_t){
+                    .active = true,
+                    .id = num_players,
+                    .x = (GRID_W / MAX_PLAYERS) * num_players,
+                    .y = 0,
+                    .velo_y = 0,
+                    .fuel = INITIAL_FUEL_MED,
+                    .thrust_level = 0,
+                    .status = PREFLIGHT,
+                    .private_msg = "private msg"
+                };
+
                 ++num_players;
 
                 if (is_verbose) {
@@ -155,23 +167,31 @@ int main(int argc, char * argv[]) {
                 continue;
             }
 
-            player_update(moon, current_player, recv_buffer[0]);
+            player_update(&moon, current_player, recv_buffer[0]);
         }
 
         if (pollfds[2].revents & POLLIN) {
-            interval_update(moon, timerfd);
+            interval_update(&moon, socketfd, timerfd, cliaddrs, addrlens, num_players);
         }
     }
 
 }
 
-void interval_update(moon_state_t moon, int fd){
+void interval_update(moon_state_t * moon, int sockfd, int timerfd, struct sockaddr_in cliaddrs[]
+    , socklen_t addrlens[], int numplayers) {
     uint64_t read_buffer;
-    printf("timer\n");
-    read(fd, &read_buffer, sizeof(uint64_t));
+    //printf("numplayers:  %d\n", numplayers);
+
+    for (int i = 0; i < numplayers; ++i) {
+        moon->pilot = i;
+        sendto(sockfd, moon, sizeof(moon_state_t), 0, (struct sockaddr *) &cliaddrs[i]
+            , addrlens[i]);
+    }
+
+    read(timerfd, &read_buffer, sizeof(uint64_t));
 }
 
-void player_update(moon_state_t, int player, char input) {
+void player_update(moon_state_t * moon, int player, char input) {
     switch (input) {
         case 'w':
         case 'k':
@@ -192,9 +212,9 @@ void player_update(moon_state_t, int player, char input) {
     }
 }
 
-void generate_terrain(moon_state_t moon) {
+void generate_terrain(moon_state_t * moon) {
     for (int i = 0; i < GRID_W; ++i) {
-        moon.terrain[i] = 10;
+        moon->terrain[i] = 20;
     }
 }
 

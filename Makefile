@@ -23,5 +23,5 @@ clean cls:
 	rm -f $(PROGS) *.o *~ \#* .*.swp
 
 run:
-	./eoraptor_server
+	./eoraptor_server -v
 
