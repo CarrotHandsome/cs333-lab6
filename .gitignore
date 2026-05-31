@@ -55,6 +55,7 @@ dkms.conf
 *.dwo
 
 #custom
+*.txt
 eoraptor_client.*
 eoraptor_ui.*
 eoraptor_server
