@@ -19,6 +19,7 @@
 #include <sys/timerfd.h>
 #include <time.h>
 #include <termios.h>
+#include <sys/ioctl.h>
 #include "eoraptor_ui.h"
 
 #define OPTIONS "P:vh"
@@ -58,7 +59,8 @@ unsigned long ns_per_frame = 0;
 int moon_x_offset = 10;
 int moon_y_offset = 2;
 char server_message[256] = {0};
-
+bool bigwin = false;
+struct winsize ws;
 
 
 volatile sig_atomic_t keep_running = true;
@@ -172,6 +174,8 @@ int main(int argc, char * argv[]) {
 
     printf("\033[2J"); //clear screen
     printf("\033[?25l"); //hide cursor
+    fflush(stdout);
+  
     /*
      * MAIN LOOP
      */
@@ -188,6 +192,7 @@ int main(int argc, char * argv[]) {
         poll(pollfds, 3, -1);
 
         if (pollfds[0].revents & POLLIN) {
+            printf("\033[2J"); //clear screen
             last_console_input = console_input;            
             scanf("%c", (char *)&console_input);
             //fprintf(stderr, "scanned: %d\n", (int)console_input);       
@@ -229,7 +234,7 @@ int main(int argc, char * argv[]) {
                                 strcat(server_message, " Port ");
                                 sprintf(&server_message[strlen(server_message)], "%u", ntohs(cliaddrs[i].sin_port));
                                 // strcat(server_message, itoa((int)cliaddrs[i].sin_port));
-                                strcat(server_message, "\n");
+                                strcat(server_message, "; ");
                             }
                         }
 
@@ -281,10 +286,9 @@ int main(int argc, char * argv[]) {
 
                 //++num_players;
 
-                if (is_verbose) {
-                    strcpy(server_message, "New client registered( )");
-                    server_message[strlen(server_message) - 2] = num_to_char[num_players(moon)];
-                }
+                strcpy(server_message, "New client registered( )");
+                server_message[strlen(server_message) - 2] = num_to_char[num_players(moon)];
+            
                 continue;
             }
 
@@ -299,13 +303,33 @@ int main(int argc, char * argv[]) {
             interval_update(&moon, socketfd, timerfd, cliaddrs, addrlens);
             //erase();
             //
-            render_moon();
-            //move(MOON_HEIGHT + 2, 0);
-            printf("\033[H\033[2B\tTO\t\t   THE\t\t\tMOON");
-            printf("\033[%d;0Hserver> %c", MOON_HEIGHT + 5, console_input);
-            //mvaddstr(MOON_HEIGHT + 2, 0, "server >");
-            //addch(console_input);
-            printf("\033[%d;0H\033[2K%s", MOON_HEIGHT + 6, server_message);
+            ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+                printf("\033[?25l"); //hide cursor
+
+            if (ws.ws_row < 26 || ws.ws_col < 50) {
+                if (bigwin) {
+                    printf("\033[H\033[2J\033[3J");
+                }
+                bigwin = false;
+
+            } else {
+                if (!bigwin) {
+                    printf("\033[H\033[2J\033[3J");
+                }                
+                bigwin = true;
+            }
+
+            if (bigwin) {
+                render_moon();
+                //move(MOON_HEIGHT + 2, 0);
+                printf("\033[H\033[2B\tTO\t\t   THE\t\t\tMOON");                
+                //mvaddstr(MOON_HEIGHT + 2, 0, "server >");
+                //addch(console_input);
+            }
+            
+            printf("\033[%d;0Hserver> %c", bigwin ? MOON_HEIGHT + 5 : 2, console_input);
+            fflush(stdout);
+            printf("\033[%d;0H\033[2K%s", bigwin ? MOON_HEIGHT + 6 : 3, server_message);
             //mvaddstr(MOON_HEIGHT + 5, 0, server_message);
             //refresh();
         }
@@ -315,6 +339,7 @@ int main(int argc, char * argv[]) {
     printf("*****\nThank you for hosting EORAPTOR\n*****\n");
     tcsetattr(STDIN_FILENO, TCSANOW, &termio_original); //restore original terminal settings
     printf("\033[?25h"); //restore cursor
+    
 
     close(socketfd);
     close(timerfd);
